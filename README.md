@@ -31,8 +31,8 @@ the current directory; if it is missing, a regex fallback is used.
 
 | Key | Action |
 |-----|--------|
-| `Ctrl+Shift+P` | Enter OpenCode mode as **plan** |
-| `Ctrl+Shift+B` | Enter OpenCode mode as **build** |
+| `Ctrl+P` | Enter OpenCode mode as **plan** |
+| `Ctrl+B` | Enter OpenCode mode as **build** |
 | `Tab` | Switch plan ↔ build (only in OpenCode mode) |
 | `Enter` | Send buffer to `opencode run` |
 | `Escape` | Exit OpenCode mode (buffer is left on the line) |
@@ -60,8 +60,8 @@ Session IDs are kept **in memory only** (per directory, shared between agents). 
 Set these before sourcing the plugin (or in `~/.zshrc` before plugins load):
 
 ```zsh
-ZSH_OPENCODE_PLAN_KEY='^[^P'              # default: Ctrl+Shift+P
-ZSH_OPENCODE_BUILD_KEY='^[^B'             # default: Ctrl+Shift+B
+ZSH_OPENCODE_PLAN_KEY='^P'                # default: Ctrl+P (overrides up-line-or-history)
+ZSH_OPENCODE_BUILD_KEY='^B'               # default: Ctrl+B (overrides backward-char)
 ZSH_OPENCODE_EXIT_KEY='^['                # default: Escape
 ZSH_OPENCODE_SWITCH_KEY='^I'              # default: Tab
 ZSH_OPENCODE_TRACK_SESSIONS=1             # 1 = track session in memory (default);

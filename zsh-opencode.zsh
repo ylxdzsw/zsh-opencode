@@ -1,8 +1,8 @@
 #!/usr/bin/env zsh
 # OpenCode modal shell: plan> / build> prompts routed to `opencode run`.
 
-: ${ZSH_OPENCODE_PLAN_KEY:='^[^P'}
-: ${ZSH_OPENCODE_BUILD_KEY:='^[^B'}
+: ${ZSH_OPENCODE_PLAN_KEY:='^P'}
+: ${ZSH_OPENCODE_BUILD_KEY:='^B'}
 : ${ZSH_OPENCODE_EXIT_KEY:='^['}
 : ${ZSH_OPENCODE_SWITCH_KEY:='^I'}
 : ${ZSH_OPENCODE_TRACK_SESSIONS:=1}
