@@ -6,10 +6,13 @@
 : ${ZSH_OPENCODE_EXIT_KEY:='^['}
 : ${ZSH_OPENCODE_SWITCH_KEY:='^I'}
 : ${ZSH_OPENCODE_TRACK_SESSIONS:=1}
+: ${ZSH_OPENCODE_BIND_KEYMAPS:='main viins vicmd'}
 
 typeset -g ZSH_OPENCODE_MODE=0
 typeset -g ZSH_OPENCODE_AGENT=plan
-typeset -g ZSH_OPENCODE_SAVED_PROMPT=''
+typeset -g ZSH_OPENCODE_SAVED_KEYMAP=''
+typeset -gA ZSH_OPENCODE_SAVED_PROMPTS
+typeset -ga ZSH_OPENCODE_PROMPT_VARS=(PROMPT RPROMPT RPROMPT2)
 
 function _zsh_opencode_update_prompt() {
   case "$ZSH_OPENCODE_AGENT" in
@@ -23,10 +26,12 @@ function _zsh_opencode_update_prompt() {
       PROMPT=$'%F{yellow}opencode>%f '
       ;;
   esac
+  RPROMPT=''
+  RPROMPT2=''
 }
 
 function _zsh_opencode_activate_keymap() {
-  bindkey -A main opencodemode 2>/dev/null || bindkey -N opencodemode main
+  ZSH_OPENCODE_SAVED_KEYMAP="${KEYMAP:-main}"
   bindkey -M opencodemode "$ZSH_OPENCODE_SWITCH_KEY" _zsh_opencode_switch_agent
   bindkey -M opencodemode "$ZSH_OPENCODE_EXIT_KEY" _zsh_opencode_exit_mode
   bindkey -M opencodemode '^M' _zsh_opencode_accept_line
@@ -35,14 +40,17 @@ function _zsh_opencode_activate_keymap() {
 }
 
 function _zsh_opencode_deactivate_keymap() {
-  zle -K main
+  zle -K "${ZSH_OPENCODE_SAVED_KEYMAP:-main}"
 }
 
 function _zsh_opencode_enter_mode() {
   local agent="$1"
 
   if (( ! ZSH_OPENCODE_MODE )); then
-    ZSH_OPENCODE_SAVED_PROMPT="$PROMPT"
+    local v
+    for v in "${ZSH_OPENCODE_PROMPT_VARS[@]}"; do
+      ZSH_OPENCODE_SAVED_PROMPTS[$v]="${(P)v}"
+    done
   fi
 
   ZSH_OPENCODE_MODE=1
@@ -66,8 +74,10 @@ function _zsh_opencode_exit_mode() {
   fi
 
   ZSH_OPENCODE_MODE=0
-  PROMPT="$ZSH_OPENCODE_SAVED_PROMPT"
-  BUFFER=""
+  local v
+  for v in "${ZSH_OPENCODE_PROMPT_VARS[@]}"; do
+    eval "$v=\${ZSH_OPENCODE_SAVED_PROMPTS[$v]-}"
+  done
   _zsh_opencode_deactivate_keymap
   zle reset-prompt
 }
@@ -90,7 +100,7 @@ function _zsh_opencode_switch_agent() {
 
 function _zsh_opencode_run() {
   local msg="$1"
-  local session_id output discovered
+  local session_id discovered
   local -a cmd=(opencode run --agent "$ZSH_OPENCODE_AGENT")
   local exit_code=0
 
@@ -106,11 +116,20 @@ function _zsh_opencode_run() {
     cmd+=(-c)
   fi
 
-  output=$("${cmd[@]}" -- "$msg" 2>&1) || exit_code=$?
-  print -r -- "$output"
+  # Let opencode's stderr (UI chrome / progress) stream live to the
+  # terminal. Stdout is also written directly so the user sees the
+  # response as it's produced.
+  "${cmd[@]}" -- "$msg" || exit_code=$?
+
+  zle -I
+
+  if (( exit_code )); then
+    print -u2 -r -- "zsh-opencode: opencode run exited with status $exit_code"
+  fi
 
   if (( ZSH_OPENCODE_TRACK_SESSIONS )) && [[ -z "$session_id" ]]; then
-    _zsh_opencode_capture_session "$output"
+    discovered=$(_zsh_opencode_discover_session)
+    [[ -n "$discovered" ]] && _zsh_opencode_set_session "$discovered"
   fi
 
   return "$exit_code"
@@ -135,6 +154,12 @@ function _zsh_opencode_accept_line() {
   _zsh_opencode_run "$msg"
 }
 
+function _zsh_opencode_chpwd() {
+  if (( ZSH_OPENCODE_MODE )); then
+    _zsh_opencode_exit_mode
+  fi
+}
+
 function _zsh_opencode_bind_widgets() {
   zle -N _zsh_opencode_enter_plan
   zle -N _zsh_opencode_enter_build
@@ -144,9 +169,25 @@ function _zsh_opencode_bind_widgets() {
 }
 
 function _zsh_opencode_bind_keys() {
-  bindkey "$ZSH_OPENCODE_PLAN_KEY" _zsh_opencode_enter_plan
-  bindkey "$ZSH_OPENCODE_BUILD_KEY" _zsh_opencode_enter_build
+  local -a kmaps
+  kmaps=(${(z)ZSH_OPENCODE_BIND_KEYMAPS})
+  local km
+  for km in "${kmaps[@]}"; do
+    bindkey -M "$km" "$ZSH_OPENCODE_PLAN_KEY"  _zsh_opencode_enter_plan  2>/dev/null
+    bindkey -M "$km" "$ZSH_OPENCODE_BUILD_KEY" _zsh_opencode_enter_build 2>/dev/null
+  done
 }
 
 _zsh_opencode_bind_widgets
 _zsh_opencode_bind_keys
+
+# Create the opencodemode keymap once at load time. The four mode-specific
+# widget bindings (Tab/Esc/Enter) are reapplied on each entry, but the
+# keymap itself is not recreated, so any bindings a user (or another
+# plugin) added to opencodemode survive mode entry/exit cycles.
+bindkey -N opencodemode main
+
+# Auto-exit OpenCode mode on directory change so the modal keymap and
+# prompts don't bleed across `cd`.
+autoload -Uz add-zsh-hook
+add-zsh-hook chpwd _zsh_opencode_chpwd
