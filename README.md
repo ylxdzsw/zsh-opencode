@@ -1,6 +1,9 @@
 # zsh-opencode
 
-A zsh plugin that adds an **OpenCode mode**: press a key combo to get a `plan>` or `build>` prompt, type a message, and have it run as `opencode run` with the matching agent. Tab switches between plan and build while staying in the same session.
+A zsh plugin that adds lightweight **OpenCode agent modes** to your normal
+shell. Press Tab on an empty shell line to enter `plan>`, switch between
+`plan>` and `build>` with Tab at the beginning of the prompt, and submit the
+buffer to `opencode run` with the matching agent.
 
 ## Install
 
@@ -23,35 +26,39 @@ plugins=(... zsh-opencode)
 source /path/to/zsh-opencode/zsh-opencode.plugin.zsh
 ```
 
-Requires `opencode` and `python3` in your `PATH`. `python3` is only used to
-parse `opencode session list --format json` when discovering a session for
-the current directory; if it is missing, a regex fallback is used.
+Requires `opencode` in your `PATH`. Tracked local sessions also require `jq`
+(preferred) or `python3` to parse `opencode session list --format json`.
 
 ## Usage
 
 | Key | Action |
 |-----|--------|
-| `Ctrl+P` | Enter OpenCode mode as **plan** |
-| `Ctrl+B` | Enter OpenCode mode as **build** |
-| `Tab` | Switch plan ↔ build (only in OpenCode mode) |
-| `Enter` | Send buffer to `opencode run` |
-| `Escape` | Exit OpenCode mode (buffer is left on the line) |
+| `Tab` on an empty shell line | Enter **plan** mode |
+| `Tab` at cursor position 0 in plan/build | Switch plan ↔ build |
+| `Tab` elsewhere in plan/build | Insert a literal tab |
+| `Shift+Enter` in plan/build | Insert a literal newline (CSI-u terminals) |
+| `Enter` in plan/build | Send buffer to `opencode run` |
+| `Backspace` at cursor position 0 in plan/build | Exit to shell mode |
+| `Ctrl+D` with an empty plan/build buffer | Exit to shell mode |
+| `Ctrl+C` in plan/build | Clear the buffer and print a fresh agent prompt |
 
 ### Typical workflow
 
 ```
 plan> design a refactor for the auth module     # Enter → opencode run --agent plan
-[Tab]
+<Tab at beginning>
 build> implement step 1 from the plan           # Enter → same session, --agent build
 ```
 
-Session IDs are kept **in memory only** (per directory, shared between agents). They are cleared when the shell exits. Use `oc-reset` to start a fresh session in the current directory.
+Session IDs are kept **in memory only** (per directory, shared between agents).
+They are cleared when the shell exits. Use `oc-reset` to clear the pinned
+session for the current directory.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `oc-status` | Show mode, agent, session id, and pwd |
+| `oc-status` | Show mode, agent, session id, attach URL, and pwd |
 | `oc-reset` | Clear in-memory session for current directory |
 | `oc-continue <id>` | Pin a session id for current directory |
 
@@ -60,57 +67,104 @@ Session IDs are kept **in memory only** (per directory, shared between agents). 
 Set these before sourcing the plugin (or in `~/.zshrc` before plugins load):
 
 ```zsh
-ZSH_OPENCODE_PLAN_KEY='^P'                # default: Ctrl+P (overrides up-line-or-history)
-ZSH_OPENCODE_BUILD_KEY='^B'               # default: Ctrl+B (overrides backward-char)
-ZSH_OPENCODE_EXIT_KEY='^['                # default: Escape
-ZSH_OPENCODE_SWITCH_KEY='^I'              # default: Tab
+ZSH_OPENCODE_ATTACH_URL=''                # optional: running opencode server,
+                                          # e.g. http://localhost:4096.
+                                          # When set, each turn passes
+                                          # --attach and --dir "$PWD:A".
 ZSH_OPENCODE_TRACK_SESSIONS=1             # 1 = track session in memory (default);
-                                          #     first message in a dir starts a new
-                                          #     opencode session, later messages
-                                          #     continue it with -s <id>.
-                                          # 0 = always pass -c (continue most recent).
+                                          #     first local-mode message in a dir
+                                          #     starts a new opencode session,
+                                          #     later messages continue it with
+                                          #     -s <id>.
+                                          # 0 = always pass -c in local mode.
 ZSH_OPENCODE_BIND_KEYMAPS='main viins vicmd'
-                                          # Keymaps to bind the entry chords in.
+                                          # Keymaps whose Tab binding is wrapped.
                                           # main  : emacs mode (and vi insert in vi mode)
                                           # viins : vi insert mode (redundant with main
                                           #         when main is linked to viins, but
                                           #         listed for clarity)
                                           # vicmd : vi command mode — independent of
                                           #         main, so it must be listed for the
-                                          #         chord to work after pressing Esc.
+                                          #         empty-line Tab entry to work there.
                                           # Override to drop vicmd if you use vi mode
-                                          # but want the chord to be insert-only.
+                                          # but want Tab entry to be insert-only.
+ZSH_OPENCODE_ENTER_HOOKS=()               # functions called on mode entry
+ZSH_OPENCODE_EXIT_HOOKS=()                # functions called on mode exit
+```
+
+### Custom key bindings
+
+The plugin only installs the Tab entry wrapper by default. If you want extra
+entry or exit keys, bind the exported widgets with normal zsh config after the
+plugin is sourced:
+
+```zsh
+bindkey -M main '^P' _zsh_opencode_enter_plan
+bindkey -M main '^B' _zsh_opencode_enter_build
+bindkey -M opencodemode '^[' _zsh_opencode_exit_mode
 ```
 
 ## Session behavior
 
 - One session per directory (`$PWD:A`), shared between plan and build agents.
-- First message in a directory starts a new opencode session. The session id
-  is discovered by `opencode session list --format json` and matched on the
-  current directory.
-- Later messages use `opencode run -s <id> --agent <plan|build>`.
+- In local mode, the first tracked message in a directory starts a new
+  opencode session. The plugin snapshots the directory's session ids before
+  the run and pins the single new id afterward. Failed or ambiguous runs are
+  not pinned, avoiding accidental continuation of an unrelated session.
+- Later local-mode messages use `opencode run -s <id> --agent <plan|build>`.
+- In attach mode (`ZSH_OPENCODE_ATTACH_URL` set), every turn passes
+  `--attach "$ZSH_OPENCODE_ATTACH_URL" --dir "$PWD:A"` so the attached server
+  is reused but the shell's current directory remains the workspace. If a
+  session is pinned with `oc-continue`, it uses `-s <id>`; otherwise it uses
+  `-c` and lets the attached server continue the latest session for that
+  workspace.
 - Nothing is written to disk by this plugin; restart zsh to forget sessions.
 - Changing directory (`cd`) automatically exits OpenCode mode, so the modal
   keymap and prompt do not bleed across directories.
 
 ## Editor mode
 
-- **Emacs mode** (default): the entry chords work out of the box.
-- **Vi mode** (`bindkey -v`): the chords are bound in `main` (which aliases
-  `viins` in vi mode) and in `vicmd`. Pressing the chord from insert mode or
-  command mode both enter OpenCode mode. Exiting restores whatever keymap
-  was active on entry.
+- **Emacs mode** (default): empty-line Tab enters plan mode.
+- **Vi mode** (`bindkey -v`): Tab is wrapped in `main`, `viins`, and `vicmd`
+  by default. Override `ZSH_OPENCODE_BIND_KEYMAPS` if you only want this in
+  insert mode.
+- The dedicated `opencodemode` keymap inherits normal editing keys but
+  overrides Enter, Shift+Enter, Tab, Backspace, Ctrl+D, and Ctrl+C. Esc and
+  Ctrl+J are not bound by default.
 
 ## Prompt handling
 
-- The plugin saves and restores `PROMPT`, `RPROMPT`, and `RPROMPT2` on
-  mode entry and exit. `PROMPT2` is intentionally left untouched so the
-  default continuation prompt still works for unclosed quotes, brackets,
-  and heredocs inside the modal.
+- The plugin saves and restores `PROMPT`, `RPROMPT`, and `RPROMPT2` on mode
+  entry and exit. `PROMPT2` is intentionally left untouched; agent input is
+  prose and does not enter zsh's shell-continuation parser.
+- Shell syntax highlighting and autosuggestions are disabled while in
+  plan/build mode and restored on exit when those plugins are present.
+
+### Plugin compatibility hooks
+
+`ZSH_OPENCODE_ENTER_HOOKS` and `ZSH_OPENCODE_EXIT_HOOKS` contain names of zsh
+functions to call inside ZLE when entering and leaving agent mode. Use them for
+editor plugins that need their own suspend/resume calls:
+
+```zsh
+function my_opencode_enter() { zle my-plugin-disable }
+function my_opencode_exit()  { zle my-plugin-enable }
+ZSH_OPENCODE_ENTER_HOOKS+=(my_opencode_enter)
+ZSH_OPENCODE_EXIT_HOOKS+=(my_opencode_exit)
+```
+
+zsh-autosuggestions is handled automatically through its `autosuggest-disable`
+and `autosuggest-enable` ZLE widgets. If it was already disabled before agent
+mode, the plugin leaves it disabled afterward.
 
 ## Buffer handling
 
-- Sending a message clears the buffer (as expected).
-- Pressing `Escape` exits the mode but **leaves the typed text on the
-  line** in the main keymap, so re-entering the mode brings it back. This
-  avoids accidental data loss if Escape is hit by mistake.
+- Sending a message clears the buffer.
+- Backspace at the beginning of the buffer exits agent mode and leaves the
+  typed text on the shell line.
+- Ctrl+D exits only when the agent buffer is empty.
+- Ctrl+C clears the current agent buffer, leaves the discarded text visible in
+  terminal scrollback, and stays in the same agent mode.
+- Shift+Enter inserts a newline when the terminal emits the CSI-u sequence
+  `^[[13;2u`, as WebTerm does. Traditional terminals commonly send the same
+  carriage return for Enter and Shift+Enter, so zsh cannot distinguish them.
