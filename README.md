@@ -58,7 +58,7 @@ session for the current directory.
 
 | Command | Description |
 |---------|-------------|
-| `oc-status` | Show mode, agent, session id, attach URL, and pwd |
+| `oc-status` | Show mode, agent, session id, and pwd |
 | `oc-reset` | Clear in-memory session for current directory |
 | `oc-continue <id>` | Pin a session id for current directory |
 
@@ -67,10 +67,6 @@ session for the current directory.
 Set these before sourcing the plugin (or in `~/.zshrc` before plugins load):
 
 ```zsh
-ZSH_OPENCODE_ATTACH_URL=''                # optional: running opencode server,
-                                          # e.g. http://localhost:4096.
-                                          # When set, each turn passes
-                                          # --attach and --dir "$PWD:A".
 ZSH_OPENCODE_TRACK_SESSIONS=1             # 1 = track session in memory (default);
                                           #     first local-mode message in a dir
                                           #     starts a new opencode session,
@@ -112,12 +108,6 @@ bindkey -M opencodemode '^[' _zsh_opencode_exit_mode
   the run and pins the single new id afterward. Failed or ambiguous runs are
   not pinned, avoiding accidental continuation of an unrelated session.
 - Later local-mode messages use `opencode run -s <id> --agent <plan|build>`.
-- In attach mode (`ZSH_OPENCODE_ATTACH_URL` set), every turn passes
-  `--attach "$ZSH_OPENCODE_ATTACH_URL" --dir "$PWD:A"` so the attached server
-  is reused but the shell's current directory remains the workspace. If a
-  session is pinned with `oc-continue`, it uses `-s <id>`; otherwise it uses
-  `-c` and lets the attached server continue the latest session for that
-  workspace.
 - Nothing is written to disk by this plugin; restart zsh to forget sessions.
 - Changing directory (`cd`) automatically exits OpenCode mode, so the modal
   keymap and prompt do not bleed across directories.

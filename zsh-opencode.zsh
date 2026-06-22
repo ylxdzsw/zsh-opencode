@@ -240,25 +240,16 @@ function _zsh_opencode_run() {
   fi
 
   session_id="$(_zsh_opencode_get_session)"
-  if [[ -z "${ZSH_OPENCODE_ATTACH_URL:-}" ]] && (( ZSH_OPENCODE_TRACK_SESSIONS )) && [[ -z "$session_id" ]]; then
+  if (( ZSH_OPENCODE_TRACK_SESSIONS )) && [[ -z "$session_id" ]]; then
     if before_sessions="$(_zsh_opencode_list_session_ids)"; then
       snapshot_ok=1
     fi
   fi
 
-  if [[ -n "${ZSH_OPENCODE_ATTACH_URL:-}" ]]; then
-    cmd+=(--attach "$ZSH_OPENCODE_ATTACH_URL" --dir "$(_zsh_opencode_pwd_key)")
-    if [[ -n "$session_id" ]]; then
-      cmd+=(-s "$session_id")
-    else
-      cmd+=(-c)
-    fi
-  else
-    if [[ -n "$session_id" ]]; then
-      cmd+=(-s "$session_id")
-    elif (( ! ZSH_OPENCODE_TRACK_SESSIONS )); then
-      cmd+=(-c)
-    fi
+  if [[ -n "$session_id" ]]; then
+    cmd+=(-s "$session_id")
+  elif (( ! ZSH_OPENCODE_TRACK_SESSIONS )); then
+    cmd+=(-c)
   fi
 
   # Let opencode own the terminal as a normal foreground command. The prompt

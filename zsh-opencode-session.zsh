@@ -2,8 +2,6 @@
 # In-memory session tracking (per realpath, shared across plan/build agents).
 # Local sessions are discovered via `opencode session list --format json`.
 # jq is preferred for parsing, with python3 as a fallback.
-# Attach mode does not use local discovery; `opencode run --attach` resolves
-# remote continuation against the current ${PWD:A} workspace.
 
 typeset -gA ZSH_OPENCODE_SESSIONS
 
@@ -95,6 +93,5 @@ function oc-status() {
   print -r -- "mode:    $ZSH_OPENCODE_MODE"
   print -r -- "agent:   ${ZSH_OPENCODE_AGENT:-}"
   print -r -- "session: $(_zsh_opencode_get_session)"
-  print -r -- "attach:  ${ZSH_OPENCODE_ATTACH_URL:-}"
   print -r -- "pwd:     $(_zsh_opencode_pwd_key)"
 }
