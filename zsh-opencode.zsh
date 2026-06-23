@@ -7,7 +7,6 @@
 typeset -g ZSH_OPENCODE_MODE=0
 typeset -g ZSH_OPENCODE_AGENT=plan
 typeset -g ZSH_OPENCODE_SAVED_KEYMAP=''
-typeset -g ZSH_OPENCODE_PENDING_PROMPT=''
 typeset -g ZSH_OPENCODE_HAD_HIGHLIGHTERS=0
 typeset -g ZSH_OPENCODE_DISABLED_AUTOSUGGESTIONS=0
 typeset -gA ZSH_OPENCODE_SAVED_PROMPTS
@@ -227,6 +226,14 @@ function _zsh_opencode_cancel_line() {
   zle reset-prompt
 }
 
+function _zsh_opencode_record_history() {
+  local msg="$1"
+  shift
+  local -a cmd=("$@")
+  local line="${(j: :)${(@q)cmd}} <<< ${(qqqq)msg}"
+  print -sr -- "$line"
+}
+
 function _zsh_opencode_run() {
   local msg="$1"
   local session_id before_sessions after_sessions discovered
@@ -234,26 +241,29 @@ function _zsh_opencode_run() {
   local exit_code=0
   local snapshot_ok=0
 
-  if ! command -v opencode >/dev/null 2>&1; then
-    print -u2 -r -- "zsh-opencode: opencode not found in PATH"
-    return 127
-  fi
-
   session_id="$(_zsh_opencode_get_session)"
-  if (( ZSH_OPENCODE_TRACK_SESSIONS )) && [[ -z "$session_id" ]]; then
-    if before_sessions="$(_zsh_opencode_list_session_ids)"; then
-      snapshot_ok=1
-    fi
-  fi
-
   if [[ -n "$session_id" ]]; then
     cmd+=(-s "$session_id")
   elif (( ! ZSH_OPENCODE_TRACK_SESSIONS )); then
     cmd+=(-c)
   fi
 
+  if ! command -v opencode >/dev/null 2>&1; then
+    _zsh_opencode_record_history "$msg" "${cmd[@]}"
+    print -u2 -r -- "zsh-opencode: opencode not found in PATH"
+    return 127
+  fi
+
+  if (( ZSH_OPENCODE_TRACK_SESSIONS )) && [[ -z "$session_id" ]]; then
+    if before_sessions="$(_zsh_opencode_list_session_ids)"; then
+      snapshot_ok=1
+    fi
+  fi
+
+  _zsh_opencode_record_history "$msg" "${cmd[@]}"
+
   # Let opencode own the terminal as a normal foreground command. The prompt
-  # text is sent on stdin so shell quoting never has to represent user prose.
+  # text is sent on stdin so shell parsing never interprets user prose.
   command "${cmd[@]}" <<< "$msg" || exit_code=$?
 
   if (( exit_code )); then
@@ -285,17 +295,13 @@ function _zsh_opencode_accept_line() {
     return 0
   fi
 
-  ZSH_OPENCODE_PENDING_PROMPT="$msg"
-  BUFFER='_zsh_opencode_send'
-  CURSOR=${#BUFFER}
-  zle accept-line
-}
-
-function _zsh_opencode_send() {
-  local msg="$ZSH_OPENCODE_PENDING_PROMPT"
-  ZSH_OPENCODE_PENDING_PROMPT=''
-  [[ -n "$msg" ]] || return 0
+  # Invalidate the current display before foreground output. Keeping the real
+  # prose in BUFFER until this point leaves it intact in terminal scrollback.
+  zle -I
+  BUFFER=''
+  CURSOR=0
   _zsh_opencode_run "$msg"
+  zle .accept-line
 }
 
 function _zsh_opencode_chpwd() {
@@ -314,11 +320,6 @@ function _zsh_opencode_line_init() {
   if (( ZSH_OPENCODE_MODE )); then
     zle -K opencodemode
   fi
-}
-
-function _zsh_opencode_addhistory() {
-  [[ "${1%%$'\n'}" == '_zsh_opencode_send' ]] && return 1
-  return 0
 }
 
 function _zsh_opencode_bind_widgets() {
@@ -363,5 +364,4 @@ _zsh_opencode_bind_keys
 # don't bleed across workspaces.
 add-zsh-hook chpwd _zsh_opencode_chpwd
 add-zsh-hook precmd _zsh_opencode_precmd_rearm
-add-zsh-hook zshaddhistory _zsh_opencode_addhistory
 add-zle-hook-widget line-init _zsh_opencode_line_init 2>/dev/null || true

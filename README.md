@@ -149,7 +149,17 @@ mode, the plugin leaves it disabled afterward.
 
 ## Buffer handling
 
-- Sending a message clears the buffer.
+- Sending a message leaves the submitted `plan>` or `build>` line visible in
+  terminal scrollback, then clears the editable buffer for the next prompt.
+- Each submission adds a replayable command to zsh history. The prompt is
+  represented as a safely quoted here-string, for example:
+
+  ```zsh
+  opencode run --agent plan -c <<< $'explain the auth flow'
+  ```
+
+  Writing that entry to `HISTFILE` follows the shell's normal history options,
+  such as `INC_APPEND_HISTORY` or `SHARE_HISTORY`.
 - Backspace at the beginning of the buffer exits agent mode and leaves the
   typed text on the shell line.
 - Ctrl+D exits only when the agent buffer is empty.
@@ -158,3 +168,12 @@ mode, the plugin leaves it disabled afterward.
 - Shift+Enter inserts a newline when the terminal emits the CSI-u sequence
   `^[[13;2u`, as WebTerm does. Traditional terminals commonly send the same
   carriage return for Enter and Shift+Enter, so zsh cannot distinguish them.
+
+## Development
+
+Run the syntax and interactive regression checks with:
+
+```zsh
+zsh -n zsh-opencode.zsh zsh-opencode-session.zsh zsh-opencode.plugin.zsh
+zsh tests/test.zsh
+```
