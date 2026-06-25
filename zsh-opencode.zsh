@@ -7,10 +7,15 @@
 typeset -g ZSH_OPENCODE_MODE=0
 typeset -g ZSH_OPENCODE_AGENT=plan
 typeset -g ZSH_OPENCODE_SAVED_KEYMAP=''
+typeset -g ZSH_OPENCODE_HISTORY_AGENT=''
+typeset -g ZSH_OPENCODE_HISTORY_BUFFER=''
+typeset -gi ZSH_OPENCODE_HISTORY_CURSOR=0
+typeset -gi ZSH_OPENCODE_HISTORY_HISTNO=0
 typeset -g ZSH_OPENCODE_HAD_HIGHLIGHTERS=0
 typeset -g ZSH_OPENCODE_DISABLED_AUTOSUGGESTIONS=0
 typeset -gA ZSH_OPENCODE_SAVED_PROMPTS
 typeset -gA ZSH_OPENCODE_SHELL_TAB_WIDGETS
+typeset -gA ZSH_OPENCODE_SHELL_DOWN_WIDGETS
 typeset -ga ZSH_OPENCODE_PROMPT_VARS=(PROMPT RPROMPT RPROMPT2)
 typeset -ga ZSH_OPENCODE_SAVED_HIGHLIGHTERS
 typeset -ga ZSH_OPENCODE_ENTER_HOOKS
@@ -91,6 +96,10 @@ function _zsh_opencode_run_hooks() {
 function _zsh_opencode_configure_agent_keymap() {
   bindkey -M opencodemode '^M' _zsh_opencode_accept_line
   bindkey -M opencodemode '^I' _zsh_opencode_agent_tab
+  bindkey -M opencodemode $'\e[A' _zsh_opencode_agent_up
+  bindkey -M opencodemode $'\eOA' _zsh_opencode_agent_up
+  bindkey -M opencodemode $'\e[B' _zsh_opencode_agent_down
+  bindkey -M opencodemode $'\eOB' _zsh_opencode_agent_down
   bindkey -M opencodemode '^?' _zsh_opencode_backspace
   bindkey -M opencodemode '^D' _zsh_opencode_delete_or_exit
   bindkey -M opencodemode '^C' _zsh_opencode_cancel_line
@@ -150,6 +159,13 @@ function _zsh_opencode_exit_mode() {
   zle reset-prompt
 }
 
+function _zsh_opencode_clear_history_return() {
+  ZSH_OPENCODE_HISTORY_AGENT=''
+  ZSH_OPENCODE_HISTORY_BUFFER=''
+  ZSH_OPENCODE_HISTORY_CURSOR=0
+  ZSH_OPENCODE_HISTORY_HISTNO=0
+}
+
 function _zsh_opencode_switch_agent() {
   if [[ "$ZSH_OPENCODE_AGENT" == plan ]]; then
     ZSH_OPENCODE_AGENT=build
@@ -182,6 +198,28 @@ function _zsh_opencode_shell_tab() {
   zle "$widget"
 }
 
+function _zsh_opencode_shell_down() {
+  local km key widget
+
+  km="${KEYMAP:-main}"
+  key="${km}:${KEYS}"
+  widget="${ZSH_OPENCODE_SHELL_DOWN_WIDGETS[$key]:-down-line-or-history}"
+  if [[ -z "$widget" || "$widget" == _zsh_opencode_shell_down ]]; then
+    widget=down-line-or-history
+  fi
+  zle "$widget"
+
+  if [[ -n "$ZSH_OPENCODE_HISTORY_AGENT" ]] &&
+     (( HISTNO == ZSH_OPENCODE_HISTORY_HISTNO )) &&
+     [[ "$BUFFER" == "$ZSH_OPENCODE_HISTORY_BUFFER" ]]; then
+    local agent="$ZSH_OPENCODE_HISTORY_AGENT"
+    local cursor="$ZSH_OPENCODE_HISTORY_CURSOR"
+    _zsh_opencode_clear_history_return
+    CURSOR=$cursor
+    _zsh_opencode_enter_mode "$agent"
+  fi
+}
+
 function _zsh_opencode_agent_tab() {
   if (( CURSOR == 0 )); then
     _zsh_opencode_switch_agent
@@ -190,6 +228,27 @@ function _zsh_opencode_agent_tab() {
 
   LBUFFER+=$'\t'
   CURSOR=${#LBUFFER}
+}
+
+function _zsh_opencode_agent_up() {
+  local before_histno="$HISTNO"
+  local before_buffer="$BUFFER"
+  local before_cursor="$CURSOR"
+  local agent="$ZSH_OPENCODE_AGENT"
+
+  zle .up-line-or-history
+
+  if (( HISTNO != before_histno )); then
+    ZSH_OPENCODE_HISTORY_AGENT="$agent"
+    ZSH_OPENCODE_HISTORY_BUFFER="$before_buffer"
+    ZSH_OPENCODE_HISTORY_CURSOR="$before_cursor"
+    ZSH_OPENCODE_HISTORY_HISTNO="$before_histno"
+    _zsh_opencode_exit_mode
+  fi
+}
+
+function _zsh_opencode_agent_down() {
+  zle .down-line-or-history
 }
 
 function _zsh_opencode_newline() {
@@ -286,6 +345,7 @@ function _zsh_opencode_accept_line() {
   local msg
 
   if (( ! ZSH_OPENCODE_MODE )); then
+    _zsh_opencode_clear_history_return
     zle .accept-line
     return
   fi
@@ -328,12 +388,30 @@ function _zsh_opencode_bind_widgets() {
   zle -N _zsh_opencode_exit_mode
   zle -N _zsh_opencode_switch_agent
   zle -N _zsh_opencode_shell_tab
+  zle -N _zsh_opencode_shell_down
   zle -N _zsh_opencode_agent_tab
+  zle -N _zsh_opencode_agent_up
+  zle -N _zsh_opencode_agent_down
   zle -N _zsh_opencode_newline
   zle -N _zsh_opencode_backspace
   zle -N _zsh_opencode_delete_or_exit
   zle -N _zsh_opencode_cancel_line
   zle -N _zsh_opencode_accept_line
+}
+
+function _zsh_opencode_save_shell_down_widget() {
+  local km="$1"
+  local seq="$2"
+  local current key widget
+  key="${km}:${seq}"
+
+  current="$(bindkey -M "$km" "$seq" 2>/dev/null)"
+  if [[ -n "$current" ]]; then
+    widget="${current##* }"
+    [[ "$widget" != _zsh_opencode_shell_down ]] && ZSH_OPENCODE_SHELL_DOWN_WIDGETS[$key]="$widget"
+  else
+    ZSH_OPENCODE_SHELL_DOWN_WIDGETS[$key]=down-line-or-history
+  fi
 }
 
 function _zsh_opencode_bind_keys() {
@@ -349,6 +427,10 @@ function _zsh_opencode_bind_keys() {
       ZSH_OPENCODE_SHELL_TAB_WIDGETS[$km]=expand-or-complete
     fi
     bindkey -M "$km" '^I' _zsh_opencode_shell_tab 2>/dev/null
+    _zsh_opencode_save_shell_down_widget "$km" $'\e[B'
+    _zsh_opencode_save_shell_down_widget "$km" $'\eOB'
+    bindkey -M "$km" $'\e[B' _zsh_opencode_shell_down 2>/dev/null
+    bindkey -M "$km" $'\eOB' _zsh_opencode_shell_down 2>/dev/null
   done
 }
 

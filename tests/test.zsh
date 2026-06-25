@@ -92,6 +92,52 @@ PATH="$fake_bin:$PATH" TEST_CAPTURE_ARGS="$capture_args" \
 cmp -- "$expected_stdin" "$capture_stdin"
 [[ ! -e $tmp/injected ]]
 
+local history_replay=$tmp/history-replay
+local history_mode_file=$tmp/history-mode
+local history_transcript=$tmp/history-transcript
+print -r -- "print -rn -- shell-history > ${(q)history_replay}" > "$history_mode_file"
+: > "$capture_calls"
+rm -f -- "$history_replay"
+
+local history_setup=" setopt HIST_IGNORE_SPACE; PS1='shell> '; PATH=${(q)fake_bin}:\$PATH; export TEST_CAPTURE_ARGS=${(q)capture_args} TEST_CAPTURE_STDIN=${(q)capture_stdin} TEST_CAPTURE_CALLS=${(q)capture_calls} TEST_EXIT_CODE=0; HISTFILE=${(q)history_mode_file}; HISTSIZE=100; SAVEHIST=100; fc -R ${(q)history_mode_file}; ZSH_OPENCODE_TRACK_SESSIONS=0; source ${(q)root}/zsh-opencode.plugin.zsh"
+interactive_status=0
+{
+  print -r -- "$history_setup"
+  sleep 0.2
+  print -rn -- $'\t\e[A\r'
+  sleep 0.2
+  print -rn -- $'\x04'
+} | timeout 5 script -qfec 'TERM=xterm-256color zsh -df' "$history_transcript" >/dev/null || interactive_status=$?
+(( interactive_status == 0 ))
+[[ -e "$history_replay" ]]
+[[ ! -s "$capture_calls" ]]
+
+local history_return_replay=$tmp/history-return-replay
+local history_return_file=$tmp/history-return
+local history_return_transcript=$tmp/history-return-transcript
+local history_return_prompt='agent after history'
+print -r -- "print -rn -- shell-history > ${(q)history_return_replay}" > "$history_return_file"
+: > "$capture_calls"
+rm -f -- "$history_return_replay"
+
+local history_return_setup=" setopt HIST_IGNORE_SPACE; PS1='shell> '; PATH=${(q)fake_bin}:\$PATH; export TEST_CAPTURE_ARGS=${(q)capture_args} TEST_CAPTURE_STDIN=${(q)capture_stdin} TEST_CAPTURE_CALLS=${(q)capture_calls} TEST_EXIT_CODE=0; HISTFILE=${(q)history_return_file}; HISTSIZE=100; SAVEHIST=100; fc -R ${(q)history_return_file}; ZSH_OPENCODE_TRACK_SESSIONS=0; source ${(q)root}/zsh-opencode.plugin.zsh"
+interactive_status=0
+{
+  print -r -- "$history_return_setup"
+  sleep 0.2
+  print -rn -- $'\t\e[A\e[B'"$history_return_prompt"$'\r'
+  sleep 0.2
+  print -rn -- $'\x04\x04'
+} | timeout 5 script -qfec 'TERM=xterm-256color zsh -df' "$history_return_transcript" >/dev/null || interactive_status=$?
+(( interactive_status == 0 ))
+[[ ! -e "$history_return_replay" ]]
+[[ $(<"$capture_calls") == x ]]
+
+actual_args=("${(@f)$(<"$capture_args")}")
+[[ "${(j:\0:)actual_args}" == "${(j:\0:)expected_args}" ]]
+print -rn -- "$history_return_prompt"$'\n' > "$expected_stdin"
+cmp -- "$expected_stdin" "$capture_stdin"
+
 source "$root/zsh-opencode.plugin.zsh"
 local unicode_prompt=$'香港 café 🐚\tquote \' slash \\\n'
 _zsh_opencode_record_history "$unicode_prompt" opencode run --agent plan

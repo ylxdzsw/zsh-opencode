@@ -160,6 +160,9 @@ mode, the plugin leaves it disabled afterward.
 
   Writing that entry to `HISTFILE` follows the shell's normal history options,
   such as `INC_APPEND_HISTORY` or `SHARE_HISTORY`.
+- Up in agent mode loads shell history as shell input and exits agent mode, so
+  replayable `opencode run ...` entries can be executed directly. Pressing Down
+  back to the original line re-enters the agent prompt.
 - Backspace at the beginning of the buffer exits agent mode and leaves the
   typed text on the shell line.
 - Ctrl+D exits only when the agent buffer is empty.
